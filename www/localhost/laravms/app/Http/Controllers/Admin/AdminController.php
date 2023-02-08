@@ -41,14 +41,22 @@ class AdminController extends Controller
         ];
         $token = $this->getGuard()->attempt($where);
         if ($token) {
-            $send = [
-                'state' => true,
-                'data' => [
-                    'token_type' => 'bearer',
-                    'token' => $token,
-                    'expires_at' => config('jwt.ttl') * 60 + $time
-                ]
-            ];
+            $user = $this->getGuard()->setToken($token)->getUser();
+            if ($user->is_deleted) {
+                $send = [
+                    'state' => false,
+                    'error' => '对应账号已删除'
+                ];
+            } else {
+                $send = [
+                    'state' => true,
+                    'data' => [
+                        'token_type' => 'bearer',
+                        'token' => $token,
+                        'expires_at' => config('jwt.ttl') * 60 + $time
+                    ]
+                ];
+            }
         } else {
             $send = [
                 'state' => false,
@@ -62,6 +70,13 @@ class AdminController extends Controller
     public function user()
     {
         $user = $this->getGuard()->user();
+        if ($user->is_deleted) {
+            $send = [
+                'state' => false,
+                'error' => '对应账号已删除'
+            ];
+            return $this->formatReturn($send);
+        }
         if ($user->id == 1) {
             $roles = ['admin'];
         } else {

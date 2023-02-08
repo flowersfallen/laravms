@@ -33,6 +33,7 @@ class AdminService extends BaseService
                     $query->where('name', 'like', '%' . $keyword . '%')->orWhere('email', 'like', '%' . $keyword . '%');
                 });
             })
+            ->where('is_deleted', 0)
             ->orderBy('id', 'desc')
             ->paginate($pagesize);
 
@@ -54,7 +55,8 @@ class AdminService extends BaseService
 
         do {
             $row = Admin::query()->where([
-                ['email', '=', $params['email']]
+                ['email', '=', $params['email']],
+                ['is_deleted', '=', 0]
             ])->first();
             if ($row) {
                 $send['error'] = self::$errors['email_used'];
@@ -106,7 +108,7 @@ class AdminService extends BaseService
                 break;
             }
 
-            $rows = Admin::whereIn('id', $idArr)->get();
+            $rows = Admin::whereIn('id', $idArr)->where('is_deleted', 0)->get();
             $idUpdate = $rows->pluck('id')->all();
             if (!$idUpdate) {
                 $send['error'] = self::$errors['row_not_exist'];
@@ -116,7 +118,7 @@ class AdminService extends BaseService
             $row = new Admin();
             $row->getConnection()->beginTransaction();
             try {
-                $update = Admin::query()->whereIn('id', $idUpdate)->delete();
+                $update = Admin::query()->whereIn('id', $idUpdate)->update(['is_deleted' => 1]);
                 if (!$update) {
                     throw new \Exception(self::$errors['del_error']);
                 }
@@ -142,7 +144,10 @@ class AdminService extends BaseService
         ];
 
         do {
-            $row = Admin::query()->where('id', $params['id'])->first();
+            $row = Admin::query()->where([
+                ['id', '=', $params['id']],
+                ['is_deleted', '=', 0]
+            ])->first();
             if (!$row) {
                 $send['error'] = self::$errors['row_not_exist'];
                 break;
@@ -151,7 +156,8 @@ class AdminService extends BaseService
             if (isset($params['email'])) {
                 $check = Admin::query()->where([
                     ['id', '<>', $params['id']],
-                    ['email', '=', $params['email']]
+                    ['email', '=', $params['email']],
+                    ['is_deleted', '=', 0]
                 ])->first();
                 if ($check) {
                     $send['error'] = self::$errors['email_used'];
