@@ -72,4 +72,34 @@ class VideoController extends Controller
         $res = $service->combineClip($params);
         return $this->formatReturn($res);
     }
+
+    public function setShare(Request $request, VideoService $service)
+    {
+        $params = $request->all();
+        $payload = $this->getPayload();
+        $params = array_merge($params, $payload);
+        $type = isset($params['type']) && in_array($params['type'], [1, 2, 3]) ? $params['type'] : 1;
+        $res = $service->updateVideo($params, $type);
+        return $this->formatReturn($res);
+    }
+
+    public function delItem(Request $request, VideoService $service)
+    {
+        $params = $request->all();
+        $payload = $this->getPayload();
+        $params = array_merge($params, $payload);
+        $type = isset($params['type']) && in_array($params['type'], [1, 2, 3]) ? $params['type'] : 1;
+        $res = $service->delVideo($params, $type);
+        return $this->formatReturn($res);
+    }
+
+    public function updateVideo(Request $request, VideoService $service)
+    {
+        $params = $request->all();
+        $payload = $this->getPayload();
+        $params = array_merge($params, $payload);
+        $type = isset($params['type']) && in_array($params['type'], [1, 2, 3]) ? $params['type'] : 1;
+        $res = $service->updateVideo($params, $type);
+        return $this->formatReturn($res);
+    }
 }

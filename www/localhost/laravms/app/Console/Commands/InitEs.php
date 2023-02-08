@@ -55,6 +55,9 @@ class InitEs extends Command
                     'analyzer'=>'index_ansj',
                     'search_analyzer' => 'query_ansj',
                 ],
+                'tags' => [
+                    'type' => 'keyword'
+                ],
                 'duration' => [
                     'type' => 'integer'
                 ],
@@ -75,6 +78,9 @@ class InitEs extends Command
                 ],
                 'created_at' => [
                     'type' => 'long'
+                ],
+                'is_sharing' => [
+                    'type' => 'integer'
                 ]
             ]
         ];
@@ -92,22 +98,12 @@ class InitEs extends Command
 
         //create
         foreach ($index as $v) {
-            if ($v == 'clip_logs') {
-                $mapping['properties']['tags'] = ['type' => 'keyword'];
-                $params = [
-                    'index' => $v,
-                    'body' => [
-                        'mappings' => $mapping
-                    ],
-                ];
-            } else {
-                $params = [
-                    'index' => $v,
-                    'body' => [
-                        'mappings' => $mapping
-                    ],
-                ];
-            }
+            $params = [
+                'index' => $v,
+                'body' => [
+                    'mappings' => $mapping
+                ],
+            ];
             $es->indices()->create($params);
         }
 
@@ -115,68 +111,33 @@ class InitEs extends Command
         foreach ($index as $v) {
             switch ($v) {
                 case 'upload_logs':
-                    $rows = UploadLog::query()->get();
-                    foreach ($rows as $row) {
-                        $record = [
-                            'index' => $v,
-                            'id' => $row->id,
-                            'body' => [
-                                'id' => $row->id,
-                                'title' => $row->title,
-                                'duration' => $row->duration,
-                                'width' => $row->width,
-                                'height' => $row->height,
-                                'thumb' => $row->thumb,
-                                'video' => $row->video,
-                                'admin_id' => $row->admin_id,
-                                'created_at' => strtotime($row->created_at)
-                            ]
-                        ];
-                        $es->index($record);
-                    }
+                    $rows = UploadLog::query()->where('is_deleted', 0)->get();
                     break;
                 case 'clip_logs':
-                    $rows = ClipLog::query()->get();
-                    foreach ($rows as $row) {
-                        $record = [
-                            'index' => $v,
-                            'id' => $row->id,
-                            'body' => [
-                                'id' => $row->id,
-                                'title' => $row->title,
-                                'duration' => $row->duration,
-                                'width' => $row->width,
-                                'height' => $row->height,
-                                'thumb' => $row->thumb,
-                                'video' => $row->video,
-                                'admin_id' => $row->admin_id,
-                                'created_at' => strtotime($row->created_at),
-                                'tags' => explode(',', $row->tags)
-                            ]
-                        ];
-                        $es->index($record);
-                    }
+                    $rows = ClipLog::query()->where('is_deleted', 0)->get();
                     break;
                 default:
-                    $rows = CombineLog::query()->get();
-                    foreach ($rows as $row) {
-                        $record = [
-                            'index' => $v,
-                            'id' => $row->id,
-                            'body' => [
-                                'id' => $row->id,
-                                'title' => $row->title,
-                                'duration' => $row->duration,
-                                'width' => $row->width,
-                                'height' => $row->height,
-                                'thumb' => $row->thumb,
-                                'video' => $row->video,
-                                'admin_id' => $row->admin_id,
-                                'created_at' => strtotime($row->created_at)
-                            ]
-                        ];
-                        $es->index($record);
-                    }
+                    $rows = CombineLog::query()->where('is_deleted', 0)->get();
+            }
+            foreach ($rows as $row) {
+                $record = [
+                    'index' => $v,
+                    'id' => $row->id,
+                    'body' => [
+                        'id' => $row->id,
+                        'title' => $row->title,
+                        'duration' => $row->duration,
+                        'width' => $row->width,
+                        'height' => $row->height,
+                        'thumb' => $row->thumb,
+                        'video' => $row->video,
+                        'admin_id' => $row->admin_id,
+                        'created_at' => strtotime($row->created_at),
+                        'tags' => explode(',', $row->tags),
+                        'is_sharing' => $row->is_sharing
+                    ]
+                ];
+                $es->index($record);
             }
         }
         

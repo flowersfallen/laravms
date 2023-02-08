@@ -6,12 +6,8 @@ import 'nprogress/nprogress.css' // progress bar style
 NProgress.configure({ showSpinner: false }) // NProgress Configuration
 
 router.beforeEach(async(to, from, next) => {
-  NProgress.start()
   //  如果用户访问登录页面，直接放行进入
-  if (to.path === '/login') {
-    next()
-    NProgress.done()
-  }
+  if (to.path === '/login') return next()
   //  从 sessionStorage 中获取 token 值
   const tokenStr = window.sessionStorage.getItem('token')
   //  没有 token ，强制跳转到 ‘/login’ 登录页
@@ -26,7 +22,6 @@ router.beforeEach(async(to, from, next) => {
     } catch (error) {
       window.sessionStorage.setItem('token', '')
       next(`/login?redirect=${to.path}`)
-      NProgress.done()
     }
   }
   next()

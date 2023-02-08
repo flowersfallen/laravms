@@ -344,10 +344,9 @@ export default {
 <style scoped lang="scss">
 .admin-container {
   .search {
-    margin: 30px;
     text-align: right;
     border-bottom: 1px solid #ebeef5;
-    padding-bottom: 25px;
+    padding: 20px;
     .el-input {
       width: 400px;
     }

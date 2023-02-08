@@ -26,6 +26,10 @@ Route::prefix('admin')->group(function () {
             Route::any('/listCombine', 'VideoController@listCombine');
             Route::any('/clipVideo', 'VideoController@clipVideo');
             Route::any('/combineClip', 'VideoController@combineClip');
+
+            Route::any('/setShare', 'VideoController@setShare');
+            Route::any('/delItem', 'VideoController@delItem');
+            Route::any('/updateVideo', 'VideoController@updateVideo');
         });
     });
 

@@ -119,6 +119,12 @@ export const constantRoutes = [
         name: 'ShareClip',
         component: () => import('@/views/video/share-clip'),
         meta: { title: '切片列表', icon: 'table' }
+      },
+      {
+        path: 'share-combine',
+        name: 'ShareCombine',
+        component: () => import('@/views/video/share-combine'),
+        meta: { title: '合并列表', icon: 'table' }
       }
     ]
   }

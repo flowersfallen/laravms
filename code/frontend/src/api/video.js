@@ -42,3 +42,27 @@ export function combineClip(params) {
     params
   })
 }
+
+export function setShare(params) {
+  return request({
+    url: '/admin/video/setShare',
+    method: 'get',
+    params
+  })
+}
+
+export function delItem(params) {
+  return request({
+    url: '/admin/video/delItem',
+    method: 'get',
+    params
+  })
+}
+
+export function updateVideo(params) {
+  return request({
+    url: '/admin/video/updateVideo',
+    method: 'get',
+    params
+  })
+}

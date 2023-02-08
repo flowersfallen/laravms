@@ -17,6 +17,20 @@ use Flow\Basic as FlowBasic;
 
 class VideoService extends BaseService
 {
+    protected static $errors = [
+        'save_error' => '保存失败',
+        'del_error' => '删除失败',
+        'ids_error' => '传参ids有误',
+        'row_not_exist' => '未查到对应记录',
+        'no_right' => '无权操作'
+    ];
+
+    protected static $fields = [
+        'title',
+        'tags',
+        'is_sharing'
+    ];
+
     public function upload($params)
     {
         $ret = ['state' => true];
@@ -56,6 +70,7 @@ class VideoService extends BaseService
             $model->admin_id = $params['admin_id'];
             $model->created_at = date('Y-m-d H:i:s');
             $model->updated_at = date('Y-m-d H:i:s');
+            $model->is_sharing = 0;
 
             if ($format) {
                 $model->duration = floor($format->get('duration'));
@@ -109,7 +124,7 @@ class VideoService extends BaseService
         }
 
         $must = [];
-        if ($share && $index != 'combine_logs') {
+        if ($share) {
             $must[] = [
                 'bool' => [
                     'must_not' => [
@@ -117,6 +132,7 @@ class VideoService extends BaseService
                     ]
                 ]
             ];
+            $must[] = ['term' => ['is_sharing' => 1]];
         } else {
             $must[] = ['term' => ['admin_id' => $params['admin_id']]];
         }
@@ -130,12 +146,10 @@ class VideoService extends BaseService
             $terms = array_filter(explode(' ', $keyword));
             if ($terms) {
                 foreach ($terms as $v) {
-                    $title[] = ['term' => ['title' => $v]];
+                    $title[] = ['match' => ['title' => $v]];
                 }
-                if ($type == 2) {
-                    foreach ($terms as $v) {
-                        $tags[] = ['term' => ['tags' => $v]];
-                    }
+                foreach ($terms as $v) {
+                    $tags[] = ['match_phrase' => ['tags' => $v]];
                 }
             }
         }
@@ -200,31 +214,17 @@ class VideoService extends BaseService
         }
 
         $domain = config('extra.file_domain');
-        if ($type == 2) {
-            foreach ($items as &$v) {
-                if (isset($adminInfo[$v['admin_id']])) {
-                    $v['admin_name'] = $adminInfo[$v['admin_id']]['name'];
-                } else {
-                    $v['admin_name'] = '';
-                }
-                $v['thumb'] = $domain . $v['thumb'];
-                $v['video'] = $domain . $v['video'];
-                $v['duration'] = $this->second2time($v['duration']);
-                $v['created_at'] = date('Y-m-d H:i:s', $v['created_at']);
-                $v['tags'] = implode(',', $v['tags']);
+        foreach ($items as &$v) {
+            if (isset($adminInfo[$v['admin_id']])) {
+                $v['admin_name'] = $adminInfo[$v['admin_id']]['name'];
+            } else {
+                $v['admin_name'] = '';
             }
-        } else {
-            foreach ($items as &$v) {
-                if (isset($adminInfo[$v['admin_id']])) {
-                    $v['admin_name'] = $adminInfo[$v['admin_id']]['name'];
-                } else {
-                    $v['admin_name'] = '';
-                }
-                $v['thumb'] = $domain . $v['thumb'];
-                $v['video'] = $domain . $v['video'];
-                $v['duration'] = $this->second2time($v['duration']);
-                $v['created_at'] = date('Y-m-d H:i:s', $v['created_at']);
-            }
+            $v['thumb'] = $domain . $v['thumb'];
+            $v['video'] = $domain . $v['video'];
+            $v['duration'] = $this->second2time($v['duration']);
+            $v['created_at'] = date('Y-m-d H:i:s', $v['created_at']);
+            $v['tags'] = implode(',', $v['tags']);
         }
 
         $send = [
@@ -283,6 +283,7 @@ class VideoService extends BaseService
         $model->admin_id = $params['admin_id'];
         $model->created_at = date('Y-m-d H:i:s');
         $model->updated_at = date('Y-m-d H:i:s');
+        $model->is_sharing = 0;
 
         if ($format) {
             $model->duration = floor($format->get('duration'));
@@ -373,6 +374,7 @@ class VideoService extends BaseService
         $model->admin_id = $params['admin_id'];
         $model->created_at = date('Y-m-d H:i:s');
         $model->updated_at = date('Y-m-d H:i:s');
+        $model->is_sharing = 0;
 
         if ($format) {
             $model->duration = floor($format->get('duration'));
@@ -409,7 +411,7 @@ class VideoService extends BaseService
         return $send;
     }
 
-    public function syncSearch($index, $row)
+    public function syncSearch($index, $row, $action = 'index')
     {
         $builder = \Elasticsearch\ClientBuilder::create()->setHosts(config('search.elasticsearch.hosts'));
         $builder->setLogger(app('log'));
@@ -424,22 +426,167 @@ class VideoService extends BaseService
             'thumb' => $row->thumb,
             'video' => $row->video,
             'admin_id' => $row->admin_id,
-            'created_at' => strtotime($row->created_at)
+            'created_at' => strtotime($row->created_at),
+            'tags' => explode(',', $row->tags),
+            'is_sharing' => $row->is_sharing
         ];
-        if ($index == 'clip_logs') {
-            $body['tags'] = explode(',', $row->tags);
-            $record = [
-                'index' => $index,
-                'id' => $row->id,
-                'body' => $body
-            ];
-        } else {
-            $record = [
-                'index' => $index,
-                'id' => $row->id,
-                'body' => $body
-            ];
+        switch ($action) {
+            case 'update':
+                $record = [
+                    'index' => $index,
+                    'id' => $row->id,
+                    'body' => [
+                        'doc' => $body
+                    ]
+                ];
+                $es->update($record);
+                break;
+            case 'del':
+                $record = [
+                    'index' => $index,
+                    'id' => $row->id
+                ];
+                $es->delete($record);
+                break;
+            default:
+                $record = [
+                    'index' => $index,
+                    'id' => $row->id,
+                    'body' => $body
+                ];
+                $es->index($record);
         }
-        $es->index($record);
+    }
+
+    public function delVideo($params, $type)
+    {
+        $send = [
+            'state' => false
+        ];
+
+        do {
+            $idArr = explode(',', $params['ids']);
+            $idArr = collect($idArr)->filter()->unique()->values()->all();
+            if (!$idArr) {
+                $send['error'] = self::$errors['ids_error'];
+                break;
+            }
+
+            switch ($type) {
+                case 1:
+                    $rows = UploadLog::query()->whereIn('id', $idArr)->where('admin_id', $params['admin_id'])->where('is_deleted', 0)->get();
+                    $model = new UploadLog();
+                    $table = 'upload_logs';
+                    break;
+                case 2:
+                    $rows = ClipLog::query()->whereIn('id', $idArr)->where('admin_id', $params['admin_id'])->where('is_deleted', 0)->get();
+                    $model = new ClipLog();
+                    $table = 'clip_logs';
+                    break;
+                default:
+                    $rows = CombineLog::query()->whereIn('id', $idArr)->where('admin_id', $params['admin_id'])->where('is_deleted', 0)->get();
+                    $model = new CombineLog();
+                    $table = 'combine_logs';
+            }
+
+            $idUpdate = $rows->pluck('id')->all();
+            if (!$idUpdate) {
+                $send['error'] = self::$errors['row_not_exist'];
+                break;
+            }
+
+            $model->getConnection()->beginTransaction();
+            try {
+                $update = $model->query()->whereIn('id', $idUpdate)->update(['is_deleted' => 1]);
+                if (!$update) {
+                    throw new \Exception(self::$errors['del_error']);
+                }
+
+                $model->getConnection()->commit();
+                foreach ($rows as $row) {
+                    $this->syncSearch($table, $row, 'del');
+                }
+                $send = [
+                    'state' => true,
+                    'data' => []
+                ];
+            } catch (\Exception $e) {
+                $model->getConnection()->rollBack();
+                $send['error'] = $e->getMessage();
+            }
+        } while (0);
+
+        return $send;
+    }
+
+    public function updateVideo($params, $type)
+    {
+        $send = [
+            'state' => false
+        ];
+
+        switch ($type) {
+            case 1:
+                $model = new UploadLog();
+                break;
+            case 2:
+                $model = new ClipLog();
+                break;
+            default:
+                $model = new CombineLog();
+        }
+
+        do {
+            $row = $model->query()->where('id', $params['id'])->first();
+            if (!$row) {
+                $send['error'] = self::$errors['row_not_exist'];
+                break;
+            }
+            if ($row->admin_id != $params['admin_id']) {
+                $send['error'] = self::$errors['no_right'];
+                break;
+            }
+
+            $row->getConnection()->beginTransaction();
+            try {
+                foreach (self::$fields as $v) {
+                    if (isset($params[$v])) {
+                        if ($v == 'is_sharing') {
+                            $row->$v = (int)$params[$v];
+                        } else {
+                            $row->$v = $params[$v];
+                        }
+                    }
+                }
+
+                $update = $row->save();
+                if (!$update) {
+                    throw new \Exception(self::$errors['save_error']);
+                }
+
+                $row->getConnection()->commit();
+                $send = [
+                    'state' => true,
+                    'data' => $row
+                ];
+
+                switch ($type) {
+                    case 1:
+                        $table = 'upload_logs';
+                        break;
+                    case 2:
+                        $table = 'clip_logs';
+                        break;
+                    default:
+                        $table = 'combine_logs';
+                }
+                $this->syncSearch($table, $row, 'update');
+            } catch (\Exception $e) {
+                $row->getConnection()->rollBack();
+                $send['error'] = $e->getMessage();
+            }
+        } while (0);
+
+        return $send;
     }
 }
