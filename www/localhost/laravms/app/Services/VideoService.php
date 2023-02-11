@@ -13,6 +13,7 @@ use App\Models\CombineLog;
 use App\Models\Admin;
 use Flow\Config as FlowConfig;
 use Flow\Request as FlowRequest;
+use Flow\File as FlowFile;
 use Flow\Basic as FlowBasic;
 
 class VideoService extends BaseService
@@ -52,10 +53,13 @@ class VideoService extends BaseService
             $newPar[$newKey] = $v;
         }
         $request = new FlowRequest($newPar);
-        $uploadFileName = uniqid()."_".$request->getFileName();
+        //$uploadFileName = uniqid()."_".$request->getFileName();
+        $uploadFileName = $request->getIdentifier()."_".$request->getFileName();
         $uploadPath = $uploadDir.'/'.$uploadFileName;
-        $res = FlowBasic::save($uploadPath, $config, $request);
-        if ($res) {
+        //$res = FlowBasic::save($uploadPath, $config, $request);
+        //if ($res) {
+        $res = $this->save($uploadPath, $config, $request, $tmpDir);
+        if ($res['state']) {
             $config = config('ffmpeg');
             $log = App::make('log');
             $ffp = FFProbe::create($config, $log);
@@ -102,6 +106,174 @@ class VideoService extends BaseService
                 $this->syncSearch('upload_logs', $model);
             }
         }
+        return $ret;
+    }
+
+    public function save($destination, $config, $request, $tmpDir)
+    {
+        $ret = [
+            'state' => false,
+        ];
+        $file = new FlowFile($config, $request);
+        if (!$file->validateChunk()) {
+            // error, invalid chunk upload request, retry
+            header("HTTP/1.1 400 Bad Request");
+            return $ret;
+        }
+        $file->saveChunk();
+
+        //文件不存在,看是否有第一块,有则合并并写入文件
+        //文件存在,读取文件,看是否有文件记录的下一块,有则合并并写入文件
+        //最后一次请求,合并所有分块
+        $mergeLog = $request->getIdentifier().'-merge.log';
+        $mergeLogPath = $tmpDir.'/'.$mergeLog;
+        if (!file_exists($mergeLogPath) && file_exists($file->getChunkPath(1))) {
+            $this->doSave($mergeLogPath, $destination, $file, $request, 1, 1);
+        }elseif (file_exists($mergeLogPath) && $request->getCurrentChunkNumber() < $request->getTotalChunks()) {
+            $this->doSave($mergeLogPath, $destination, $file, $request, 0, 2);
+        }elseif (file_exists($mergeLogPath) && $request->getCurrentChunkNumber() == $request->getTotalChunks()) {
+            $this->doSave($mergeLogPath, $destination, $file, $request, 0, 3);
+        }
+
+        if ($request->getCurrentChunkNumber() == $request->getTotalChunks() && $request->getTotalSize() == filesize($destination)) {
+            $file->deleteChunks();
+            if (file_exists($mergeLogPath)) {
+                unlink($mergeLogPath);
+            }
+            $ret['state'] = true;
+        }
+        return $ret;
+    }
+
+    public function doSave($mergeLogPath, $destination, $file, $request, $num = 0, $type = 1)
+    {
+        $ret = [
+            'state' => false
+        ];
+
+        $fp = fopen($mergeLogPath, 'a+');
+        if (!$fp) {
+            $ret['error'] = $mergeLogPath.' can not be opened';
+            return $ret;
+        }
+        if ($type == 3) {
+            if (!flock($fp, LOCK_EX)) {
+                fclose($fp);
+                $ret['error'] = $mergeLogPath.' can not be locked';
+                return $ret;
+            }
+        } else {
+            if (!flock($fp, LOCK_EX | LOCK_NB, $blocked)) {
+                fclose($fp);
+                if ($blocked) {
+                    $ret['error'] = $mergeLogPath.' is used by others';
+                } else {
+                    $ret['error'] = $mergeLogPath.' can not be locked';
+                }
+                return $ret;
+            }
+        }
+
+        if (!$num) {
+            $content = fread($fp, filesize($mergeLogPath));
+            $arr = explode(',', $content);
+            $index = count($arr) - 1;
+            $now = $arr[$index];
+            $num = $now + 1;
+        }
+
+        switch ($type) {
+            case 2:
+                $total = $request->getCurrentChunkNumber();
+                break;
+            case 3:
+                $total = $request->getTotalChunks();
+                break;
+            default:
+                $total = $num;
+        }
+
+        $fh = fopen($destination, 'ab+');
+        if (!$fh) {
+            flock($fp, LOCK_UN);
+            fclose($fp);
+
+            $ret['error'] = $destination.' can not be opened';
+            return $ret;
+        }
+        if ($type == 3) {
+            if (!flock($fh, LOCK_EX)) {
+                fclose($fh);
+                flock($fp, LOCK_UN);
+                fclose($fp);
+
+                $ret['error'] = $destination.' can not be locked';
+                return $ret;
+            }
+        } else {
+            if (!flock($fh, LOCK_EX | LOCK_NB, $blocked)) {
+                fclose($fh);
+                flock($fp, LOCK_UN);
+                fclose($fp);
+
+                if ($blocked) {
+                    $ret['error'] = $destination.' is used by others';
+                } else {
+                    $ret['error'] = $destination.' can not be locked';
+                }
+                return $ret;
+            }
+        }
+
+        for ($i = $num; $i <= $total; $i++) {
+            $filePath = $file->getChunkPath($i);
+            if (!file_exists($filePath) || (filesize($filePath) < 1048576)) {
+                flock($fh, LOCK_UN);
+                fclose($fh);
+                flock($fp, LOCK_UN);
+                fclose($fp);
+
+                $ret['error'] = $filePath.' is not exist';
+                return $ret;
+            }
+
+            $chunk = fopen($filePath, "rb");
+            if (!$chunk) {
+                flock($fh, LOCK_UN);
+                fclose($fh);
+                flock($fp, LOCK_UN);
+                fclose($fp);
+
+                $ret['error'] = $filePath.' can not be opened';
+                return $ret;
+            }
+
+            $copy = stream_copy_to_stream($chunk, $fh);
+            if (!$copy) {
+                fclose($chunk);
+                flock($fh, LOCK_UN);
+                fclose($fh);
+                flock($fp, LOCK_UN);
+                fclose($fp);
+
+                $ret['error'] = 'chunk '.$num.' copy to destination failed';
+                return $ret;
+            }
+
+            fclose($chunk);
+            if ($num == 1) {
+                fwrite($fp, $i);
+            } else {
+                fwrite($fp, ','.$i);
+            }
+        }
+
+        flock($fh, LOCK_UN);
+        fclose($fh);
+        flock($fp, LOCK_UN);
+        fclose($fp);
+
+        $ret['state'] = true;
         return $ret;
     }
 
